@@ -44,15 +44,39 @@ def predict_file(uploaded, mode):
     return predict_video_bytes(data,uploaded.name)
 
 def show_result(result,mode,file_name,file_size):
-    fake=bool(result.get("is_deepfake",False));conf=float(result.get("confidence",0) or 0);prob=float(result.get("probability_fake",0) or 0)
-    cls="fake" if fake else "real";title="⚠️ DEEPFAKE DETECTED" if fake else "✅ AUTHENTIC MEDIA"
-    desc=f"The model classified this {mode.lower()} as potentially manipulated." if fake else f"The model classified this {mode.lower()} as likely authentic."
-    st.markdown(f'<div class="result {cls}"><div class="rtitle">{title}</div><div class="desc">{desc}</div><div class="metrics"><div class="metric"><small>Model confidence</small><b>{conf:.2%}</b></div><div class="metric"><small>Fake probability</small><b>{prob:.2%}</b></div></div></div>',unsafe_allow_html=True)
-    st.progress(min(max(conf,0),1),text=f"Confidence · {conf:.1%}")
+    # Always render the canonical prediction produced by config.py.
+    # Do not rely on UI-only compatibility defaults because a missing field
+    # must never silently turn a prediction into REAL / 0% fake.
+    label=str(result.get("label", "UNKNOWN")).upper()
+    probabilities=result.get("raw_probabilities", [])
+    if isinstance(probabilities,(list,tuple)) and len(probabilities)>=2:
+        real_probability=float(probabilities[0])
+        fake_probability=float(probabilities[1])
+    else:
+        fake_probability=float(result.get("probability_fake", 0.0) or 0.0)
+        real_probability=max(0.0,1.0-fake_probability)
+
+    is_fake=label=="FAKE"
+    confidence=float(result.get("confidence", max(real_probability,fake_probability)) or 0.0)
+    cls="fake" if is_fake else "real"
+    title="⚠️ DEEPFAKE / AI-GENERATED DETECTED" if is_fake else "✅ AUTHENTIC / REAL IMAGE"
+    desc=(
+        f"The image model classified this {mode.lower()} as manipulated or AI-generated."
+        if is_fake else
+        f"The image model classified this {mode.lower()} as likely authentic."
+    )
+    st.markdown(f'<div class="result {cls}"><div class="rtitle">{title}</div><div class="desc">{desc}</div><div class="metrics"><div class="metric"><small>Model confidence</small><b>{confidence:.2%}</b></div><div class="metric"><small>Fake probability</small><b>{fake_probability:.2%}</b></div></div></div>',unsafe_allow_html=True)
+    st.progress(min(max(confidence,0),1),text=f"Confidence · {confidence:.1%}")
     with st.expander("🔎 View technical details"):
         st.write(f"**File:** {file_name}")
         st.write(f"**File size:** {file_size/1024/1024:.2f} MB" if mode=="Video" else f"**File size:** {file_size/1024:.2f} KB")
+        st.write(f"**Classification:** {label}")
+        st.write(f"**Real probability:** {real_probability:.4f}")
+        st.write(f"**Fake probability:** {fake_probability:.4f}")
+        st.write(f"**Threshold:** {float(result.get('threshold',0.5)):.2f}")
         st.write(f"**Model source:** {result.get('model_source','N/A')}")
+        st.write(f"**Preprocessing:** {result.get('preprocessing','N/A')}")
+        st.write(f"**Legacy binary head:** {result.get('legacy_binary_head','N/A')}")
         if "extra" in result:
             extra=result["extra"].copy() if isinstance(result["extra"],dict) else result["extra"]
             if isinstance(extra,dict) and "frame_probabilities" in extra: extra["frame_probabilities"]=f"[{len(extra['frame_probabilities'])} frames]"
