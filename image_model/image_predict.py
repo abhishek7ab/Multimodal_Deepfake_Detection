@@ -5,6 +5,7 @@ import cv2
 
 from config import IMAGE_CONFIG, build_prediction_result
 
+from .dct_detector import analyse_dct_artifacts
 from .gradcam import generate_gradcam_heatmap, overlay_heatmap
 from .image_model import load_image_model
 from .image_utils import decode_image_bytes, preprocess_image_bytes
@@ -15,17 +16,26 @@ def predict_image_bytes(image_bytes: bytes, filename: str | None = None) -> dict
     batch, meta = preprocess_image_bytes(image_bytes, mode=loaded_model.preprocessing)
     raw_prediction = loaded_model.model.predict(batch, verbose=0)[0]
 
+    # Decode original image once (reused for heatmap + DCT analysis)
+    original_bgr = decode_image_bytes(image_bytes)
+
     # Generate Grad-CAM Attention Heatmap
     heatmap_b64: str | None = None
     try:
         heatmap = generate_gradcam_heatmap(loaded_model.model, batch, pred_index=1)
-        original_bgr = decode_image_bytes(image_bytes)
         overlay_rgb = overlay_heatmap(heatmap, original_bgr)
         success, encoded = cv2.imencode(".png", cv2.cvtColor(overlay_rgb, cv2.COLOR_RGB2BGR))
         if success:
             heatmap_b64 = base64.b64encode(encoded).decode("utf-8")
     except Exception as exc:
         print(f"[WARN] Failed to generate Grad-CAM heatmap: {exc}")
+
+    # Run supplementary DCT frequency-domain analysis
+    dct_analysis: dict | None = None
+    try:
+        dct_analysis = analyse_dct_artifacts(original_bgr)
+    except Exception as exc:
+        print(f"[WARN] DCT analysis failed: {exc}")
 
     return build_prediction_result(
         modality="image",
@@ -40,5 +50,7 @@ def predict_image_bytes(image_bytes: bytes, filename: str | None = None) -> dict
             "face_detected": meta.get("face_detected", False),
             "face_bbox": meta.get("bbox"),
             "heatmap_b64": heatmap_b64,
+            "dct_analysis": dct_analysis,
         },
     )
+
