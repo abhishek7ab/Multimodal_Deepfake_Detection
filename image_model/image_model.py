@@ -24,9 +24,11 @@ def _wrap_binary_model(base_model: tf.keras.Model) -> tf.keras.Model:
     input_shape = tuple(base_model.input_shape[1:])
     inputs = tf.keras.Input(shape=input_shape, name="legacy_input")
     base_outputs = base_model(inputs)
-    # FIXED: Swap probability order - tensor is fake probability, 1.0-tensor is real
+
+    # The legacy model has a single sigmoid output representing the FAKE
+    # probability. Convert it to the canonical [REAL, FAKE] order.
     outputs = tf.keras.layers.Lambda(
-        lambda tensor: tf.concat([tensor, 1.0 - tensor], axis=-1),
+        lambda tensor: tf.concat([1.0 - tensor, tensor], axis=-1),
         name="binary_to_two_class_probabilities",
     )(base_outputs)
     return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{base_model.name}_wrapped")
