@@ -1,111 +1,688 @@
+import base64
+import hashlib
+import json
+import time
+import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="DeepGuard | Deepfake Detection", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="DeepGuard | Multimodal Deepfake Forensics",
+    page_icon="🛡️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 st.markdown("""
 <style>
-.stApp{background:#f7f9fc}.block-container{max-width:1180px;padding-top:2rem}
-[data-testid="stSidebar"]{background:#101828}[data-testid="stSidebar"] *{color:#f2f4f7}
-.hero{background:linear-gradient(135deg,#101828,#1d2939);padding:2.5rem 2.7rem;border-radius:24px;margin-bottom:1.4rem;box-shadow:0 12px 35px rgba(16,24,40,.12)}
-.badge{display:inline-block;padding:.35rem .75rem;border-radius:99px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);color:#d0d5dd;font-size:.75rem;font-weight:700;letter-spacing:.04em}
-.hero h1{color:white;font-size:2.6rem;line-height:1.1;margin:.75rem 0 .6rem;font-weight:800}.hero p{color:#d0d5dd;max-width:760px;font-size:1rem;line-height:1.6;margin:0}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin:1rem 0 1.5rem}.feature{background:#fff;border:1px solid #e4e7ec;border-radius:16px;padding:1rem}.feature b{display:block;color:#101828;margin-top:.3rem}.feature span{color:#667085;font-size:.78rem}
-.card{background:#fff;border:1px solid #e4e7ec;border-radius:18px;padding:1.35rem;box-shadow:0 5px 18px rgba(16,24,40,.05);margin-bottom:1rem}.title{font-size:1.15rem;font-weight:750;color:#101828}.sub{color:#667085;font-size:.88rem;margin:.3rem 0 1rem}
-[data-testid="stFileUploader"]{background:#f8fafc;border:1.5px dashed #98a2b3;border-radius:16px;padding:.7rem}[data-testid="stFileUploader"] section{border:0;background:transparent}
-.stButton>button{width:100%;min-height:48px;border:0;border-radius:12px;background:#111827;color:white;font-weight:750;box-shadow:0 5px 14px rgba(17,24,39,.16)}.stButton>button:hover{background:#1f2937;color:white}
-.result{border-radius:18px;padding:1.4rem;border:1px solid;margin-bottom:1rem}.real{background:#ecfdf3;border-color:#abefc6}.fake{background:#fef3f2;border-color:#fecdca}.rtitle{font-size:1.3rem;font-weight:850}.real .rtitle{color:#027a48}.fake .rtitle{color:#b42318}.desc{color:#475467;font-size:.9rem;margin:.4rem 0 1rem}.metrics{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}.metric{background:rgba(255,255,255,.75);border-radius:12px;padding:.8rem}.metric small{display:block;color:#667085}.metric b{color:#101828;font-size:1.05rem}
-.footer{text-align:center;color:#98a2b3;font-size:.78rem;padding:1.5rem 0}.stProgress>div>div>div>div{border-radius:99px}
-@media(max-width:800px){.grid{grid-template-columns:1fr}.hero h1{font-size:2rem}}
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+/* Global Reset & Dark Canvas */
+html, body, [class*="css"] {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: #e2e8f0;
+}
+
+.stApp {
+    background: radial-gradient(circle at 50% 0%, #111a2e 0%, #090d16 65%, #05070c 100%);
+    background-attachment: fixed;
+}
+
+header[data-testid="stHeader"] {
+    background: rgba(9, 13, 22, 0.75) !important;
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.block-container {
+    max-width: 1240px;
+    padding-top: 5rem !important;
+    padding-bottom: 4rem !important;
+}
+
+/* Sidebar Styling */
+[data-testid="stSidebar"] {
+    background: #090d16 !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+    font-family: 'Outfit', sans-serif;
+    color: #f8fafc;
+}
+
+/* Hero Section */
+.hero {
+    background: linear-gradient(135deg, rgba(17, 24, 39, 0.9) 0%, rgba(30, 41, 59, 0.75) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    border-radius: 24px;
+    padding: 2.5rem 2.8rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6), 0 0 30px -5px rgba(56, 189, 248, 0.12);
+    position: relative;
+    overflow: hidden;
+}
+
+.hero::before {
+    content: "";
+    position: absolute;
+    top: -50%;
+    right: -10%;
+    width: 380px;
+    height: 380px;
+    background: radial-gradient(circle, rgba(56, 189, 248, 0.15) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.badge-row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    margin-bottom: 0.8rem;
+}
+
+.badge-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.32rem 0.85rem;
+    border-radius: 999px;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    color: #38bdf8;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+    display: inline-block;
+}
+
+.hero h1 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 2.8rem;
+    font-weight: 800;
+    line-height: 1.15;
+    margin: 0.4rem 0 0.7rem;
+    background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 40%, #38bdf8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.hero p {
+    color: #94a3b8;
+    font-size: 1.05rem;
+    line-height: 1.65;
+    max-width: 820px;
+    margin: 0;
+}
+
+/* Feature Grid */
+.grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin: 1.2rem 0 1.8rem;
+}
+
+.feature-card {
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 18px;
+    padding: 1.2rem 1.3rem;
+    transition: all 0.25s ease;
+}
+
+.feature-card:hover {
+    border-color: rgba(56, 189, 248, 0.35);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+}
+
+.feature-card .f-icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+    display: inline-block;
+}
+
+.feature-card b {
+    display: block;
+    font-family: 'Outfit', sans-serif;
+    color: #f8fafc;
+    font-size: 1.05rem;
+    margin-bottom: 0.25rem;
+}
+
+.feature-card span {
+    color: #94a3b8;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    display: block;
+}
+
+/* Glass Panels */
+.glass-panel {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 22px;
+    padding: 1.6rem;
+    box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.5);
+    margin-bottom: 1.2rem;
+    backdrop-filter: blur(16px);
+}
+
+.panel-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #f8fafc;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.panel-sub {
+    color: #94a3b8;
+    font-size: 0.88rem;
+    margin: 0.25rem 0 1.2rem;
+}
+
+/* File Uploader Customization */
+[data-testid="stFileUploader"] {
+    background: rgba(10, 14, 23, 0.65) !important;
+    border: 1.5px dashed rgba(56, 189, 248, 0.35) !important;
+    border-radius: 18px !important;
+    padding: 1.2rem !important;
+    transition: all 0.2s ease;
+}
+
+[data-testid="stFileUploader"]:hover {
+    border-color: #38bdf8 !important;
+    background: rgba(56, 189, 248, 0.04) !important;
+}
+
+[data-testid="stFileUploader"] section {
+    border: none !important;
+    background: transparent !important;
+}
+
+/* Primary Action Button */
+.stButton>button {
+    width: 100%;
+    min-height: 52px;
+    border: none;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%);
+    color: #ffffff;
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    box-shadow: 0 8px 25px -5px rgba(79, 70, 229, 0.5);
+    transition: all 0.25s ease;
+    margin-top: 0.6rem;
+}
+
+.stButton>button:hover {
+    background: linear-gradient(135deg, #0369a1 0%, #4338ca 100%);
+    box-shadow: 0 10px 30px -4px rgba(79, 70, 229, 0.65);
+    transform: translateY(-1.5px);
+    color: #ffffff !important;
+}
+
+/* Result Cards */
+.result-card {
+    border-radius: 20px;
+    padding: 1.6rem 1.8rem;
+    border: 1px solid;
+    margin-bottom: 1.2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.result-card.real {
+    background: linear-gradient(135deg, rgba(6, 78, 59, 0.45) 0%, rgba(2, 44, 34, 0.75) 100%);
+    border-color: rgba(16, 185, 129, 0.4);
+    box-shadow: 0 15px 35px -10px rgba(16, 185, 129, 0.2);
+}
+
+.result-card.fake {
+    background: linear-gradient(135deg, rgba(136, 19, 55, 0.45) 0%, rgba(76, 5, 25, 0.75) 100%);
+    border-color: rgba(244, 63, 94, 0.45);
+    box-shadow: 0 15px 35px -10px rgba(244, 63, 94, 0.25);
+}
+
+.result-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.45rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+}
+
+.real .result-title { color: #34d399; }
+.fake .result-title { color: #fb7185; }
+
+.result-desc {
+    color: #cbd5e1;
+    font-size: 0.95rem;
+    margin: 0.4rem 0 1.2rem;
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem;
+}
+
+.metric-box {
+    background: rgba(10, 14, 23, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 0.9rem 1rem;
+}
+
+.metric-box small {
+    display: block;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.metric-box b {
+    color: #f8fafc;
+    font-size: 1.35rem;
+    font-family: 'Outfit', sans-serif;
+}
+
+/* Fusion Box */
+.fusion-box {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+    margin: 1rem 0;
+    background: rgba(10, 14, 23, 0.5);
+    padding: 0.9rem;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.fusion-item {
+    background: rgba(15, 23, 42, 0.7);
+    padding: 0.8rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    text-align: center;
+}
+
+.fusion-item small {
+    color: #94a3b8;
+    display: block;
+    font-size: 0.78rem;
+    margin-bottom: 0.2rem;
+}
+
+.fusion-item b {
+    font-size: 1.15rem;
+    color: #38bdf8;
+    font-family: 'Outfit', sans-serif;
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 3rem 1.5rem;
+    color: #64748b;
+}
+
+.empty-radar {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 1.2rem;
+    border-radius: 50%;
+    background: rgba(56, 189, 248, 0.06);
+    border: 1.5px dashed rgba(56, 189, 248, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.8rem;
+}
+
+.empty-state h4 {
+    font-family: 'Outfit', sans-serif;
+    color: #94a3b8;
+    font-size: 1.15rem;
+    margin-bottom: 0.3rem;
+}
+
+.empty-state p {
+    font-size: 0.88rem;
+    max-width: 320px;
+    margin: 0 auto;
+    line-height: 1.5;
+}
+
+/* Heatmap Container */
+.heatmap-container {
+    background: #0a0e17;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    padding: 1.2rem;
+    margin-top: 1rem;
+    text-align: center;
+}
+
+.heatmap-img {
+    max-width: 100%;
+    border-radius: 14px;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+/* Footer */
+.footer {
+    text-align: center;
+    color: #64748b;
+    font-size: 0.82rem;
+    padding: 2.5rem 0 1rem;
+}
+
+@media(max-width: 840px) {
+    .grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2.2rem; }
+}
 </style>
 """, unsafe_allow_html=True)
 
-st.sidebar.markdown("# 🛡️ DeepGuard")
-st.sidebar.caption("Multimodal Deepfake Detection")
+# ----------------- SIDEBAR -----------------
+st.sidebar.markdown("## 🛡️ DeepGuard")
+st.sidebar.caption("Multimodal AI Media Forensics Engine")
 st.sidebar.markdown("---")
-modality=st.sidebar.radio("Detection modality",["Image","Audio","Video"])
-info={"Image":"Analyze images for signs of manipulation.","Audio":"Analyze speech/audio for synthetic content.","Video":"Sample video frames for deepfake indicators."}
-formats={"Image":"JPG · JPEG · PNG · BMP","Audio":"WAV · MP3 · M4A · FLAC","Video":"MP4 · AVI · MOV · MKV"}
-st.sidebar.info(info[modality]);st.sidebar.markdown("**Supported formats**");st.sidebar.caption(formats[modality]);st.sidebar.markdown("---");st.sidebar.caption("Powered by TensorFlow / Keras")
 
+modality = st.sidebar.radio("Inspection Modality", ["Image", "Audio", "Video"])
+
+info = {
+    "Image": "Analyzes facial landmarks, texture anomalies & Grad-CAM spatial heatmaps.",
+    "Audio": "Analyzes speech frequencies using 40-band MFCC spectral forensics.",
+    "Video": "Multi-frame spatial ensemble fused with automated acoustic track analysis.",
+}
+formats = {
+    "Image": "JPG · JPEG · PNG · BMP",
+    "Audio": "WAV · MP3 · M4A · FLAC",
+    "Video": "MP4 · AVI · MOV · MKV",
+}
+st.sidebar.info(info[modality])
+st.sidebar.markdown("**Supported File Types**")
+st.sidebar.caption(formats[modality])
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Active Forensic Subsystems**")
+st.sidebar.caption("🟢 Face ROI Localizer (Haar Cascade)")
+st.sidebar.caption("🟢 Grad-CAM Spatial Heatmap Generator")
+st.sidebar.caption("🟢 FFmpeg 16kHz Acoustic Stream Extractor")
+st.sidebar.caption("🟢 Multimodal Late-Fusion Decision Engine")
+
+st.sidebar.markdown("---")
+st.sidebar.caption("Engine: TensorFlow 2.21 / Keras 3")
+
+
+# ----------------- MAIN HERO -----------------
 st.markdown("""
-<div class="hero"><span class="badge">AI-POWERED MEDIA FORENSICS</span><h1>Multimodal Deepfake Detection</h1><p>Detect manipulated content across images, audio, and video using trained neural-network models. Upload your media and receive a clear, confidence-based prediction.</p></div>
-<div class="grid"><div class="feature">📸<b>Image Analysis</b><span>Detect manipulated facial imagery.</span></div><div class="feature">🎙️<b>Audio Analysis</b><span>Inspect synthetic or altered speech.</span></div><div class="feature">🎥<b>Video Analysis</b><span>Evaluate sampled video frames.</span></div></div>
+<div class="hero">
+    <div class="badge-row">
+        <span class="badge-pill"><span class="pulse-dot"></span>AI FORENSIC VERIFICATION</span>
+        <span class="badge-pill">V2.2 MULTIMODAL</span>
+    </div>
+    <h1>Multimodal Deepfake Detection</h1>
+    <p>Empowered by deep convolutional networks, spatial Face ROI localization, Grad-CAM attention heatmaps, and multimodal video-audio fusion to deliver transparent, confidence-scored media authentication.</p>
+</div>
+
+<div class="grid">
+    <div class="feature-card">
+        <span class="f-icon">📸</span>
+        <b>Face ROI & Grad-CAM</b>
+        <span>Isolates facial geometry and generates spatial heatmaps of artifacts.</span>
+    </div>
+    <div class="feature-card">
+        <span class="f-icon">🎙️</span>
+        <b>Acoustic Spectral Analysis</b>
+        <span>Evaluates MFCC spectrograms to detect synthetic voice cloning.</span>
+    </div>
+    <div class="feature-card">
+        <span class="f-icon">🎥</span>
+        <b>Audio-Visual Video Fusion</b>
+        <span>Combines frame-level visual forensics with extracted speech tracks.</span>
+    </div>
+</div>
 """, unsafe_allow_html=True)
 
+
+# ----------------- INFERENCE HELPER -----------------
 def predict_file(uploaded, mode):
-    data=uploaded.getvalue()
-    if mode=="Image":
+    data = uploaded.getvalue()
+    if mode == "Image":
         from image_model.image_predict import predict_image_bytes
-        return predict_image_bytes(data,uploaded.name)
-    if mode=="Audio":
+        return predict_image_bytes(data, uploaded.name)
+    if mode == "Audio":
         from audio_model.audio_predict import predict_audio_bytes
-        return predict_audio_bytes(data,uploaded.name)
+        return predict_audio_bytes(data, uploaded.name)
     from video_model.video_predict import predict_video_bytes
-    return predict_video_bytes(data,uploaded.name)
+    return predict_video_bytes(data, uploaded.name)
 
-def show_result(result,mode,file_name,file_size):
-    # Always render the canonical prediction produced by config.py.
-    # Do not rely on UI-only compatibility defaults because a missing field
-    # must never silently turn a prediction into REAL / 0% fake.
-    label=str(result.get("label", "UNKNOWN")).upper()
-    probabilities=result.get("raw_probabilities", [])
-    if isinstance(probabilities,(list,tuple)) and len(probabilities)>=2:
-        real_probability=float(probabilities[0])
-        fake_probability=float(probabilities[1])
-    else:
-        fake_probability=float(result.get("probability_fake", 0.0) or 0.0)
-        real_probability=max(0.0,1.0-fake_probability)
 
-    is_fake=label=="FAKE"
-    confidence=float(result.get("confidence", max(real_probability,fake_probability)) or 0.0)
-    cls="fake" if is_fake else "real"
-    title="⚠️ DEEPFAKE / AI-GENERATED DETECTED" if is_fake else "✅ AUTHENTIC / REAL IMAGE"
-    desc=(
-        f"The image model classified this {mode.lower()} as manipulated or AI-generated."
-        if is_fake else
-        f"The image model classified this {mode.lower()} as likely authentic."
+# ----------------- RESULT RENDERER -----------------
+def show_result(result, mode, file_name, file_size, file_hash):
+    fake = bool(result.get("is_deepfake", False))
+    conf = float(result.get("confidence", 0) or 0)
+    prob = float(result.get("probability_fake", 0) or 0)
+    cls = "fake" if fake else "real"
+    title = "⚠️ DEEPFAKE MANIPULATION DETECTED" if fake else "✅ AUTHENTIC MEDIA VERIFIED"
+    desc = (
+        f"Forensic algorithms detected strong indicators of synthetic generation or manipulation in this {mode.lower()}."
+        if fake
+        else f"No detectable adversarial artifacts or synthesis patterns found in this {mode.lower()}."
     )
-    st.markdown(f'<div class="result {cls}"><div class="rtitle">{title}</div><div class="desc">{desc}</div><div class="metrics"><div class="metric"><small>Model confidence</small><b>{confidence:.2%}</b></div><div class="metric"><small>Fake probability</small><b>{fake_probability:.2%}</b></div></div></div>',unsafe_allow_html=True)
-    st.progress(min(max(confidence,0),1),text=f"Confidence · {confidence:.1%}")
-    with st.expander("🔎 View technical details"):
-        st.write(f"**File:** {file_name}")
-        st.write(f"**File size:** {file_size/1024/1024:.2f} MB" if mode=="Video" else f"**File size:** {file_size/1024:.2f} KB")
-        st.write(f"**Classification:** {label}")
-        st.write(f"**Real probability:** {real_probability:.4f}")
-        st.write(f"**Fake probability:** {fake_probability:.4f}")
-        st.write(f"**Threshold:** {float(result.get('threshold',0.5)):.2f}")
-        st.write(f"**Model source:** {result.get('model_source','N/A')}")
-        st.write(f"**Preprocessing:** {result.get('preprocessing','N/A')}")
-        st.write(f"**Legacy binary head:** {result.get('legacy_binary_head','N/A')}")
-        if "extra" in result:
-            extra=result["extra"].copy() if isinstance(result["extra"],dict) else result["extra"]
-            if isinstance(extra,dict) and "frame_probabilities" in extra: extra["frame_probabilities"]=f"[{len(extra['frame_probabilities'])} frames]"
-            st.json(extra)
 
-left,right=st.columns([1.05,.95],gap="large")
+    st.markdown(
+        f"""
+        <div class="result-card {cls}">
+            <div class="result-title">{title}</div>
+            <div class="result-desc">{desc}</div>
+            <div class="metrics-grid">
+                <div class="metric-box">
+                    <small>Model Confidence</small>
+                    <b>{conf:.2%}</b>
+                </div>
+                <div class="metric-box">
+                    <small>Manipulation Probability</small>
+                    <b>{prob:.2%}</b>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.progress(min(max(conf, 0.0), 1.0), text=f"Inference Certainty: {conf:.1%}")
+
+    extra = result.get("extra", {})
+
+    # Multimodal Video Fusion Panel
+    if mode == "Video" and isinstance(extra, dict):
+        if extra.get("multimodal_fusion_applied"):
+            vis_p = extra.get("visual_probability_fake", 0.0)
+            aud_p = extra.get("audio_probability_fake", 0.0)
+            st.markdown(
+                f"""
+                <div class="fusion-box">
+                    <div class="fusion-item">
+                        <small>🎥 Visual Frame Score (60%)</small>
+                        <b>{vis_p:.1%} Fake</b>
+                    </div>
+                    <div class="fusion-item">
+                        <small>🎙️ Extracted Audio Score (40%)</small>
+                        <b>{aud_p:.1%} Fake</b>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        elif extra.get("audio_detected") is False:
+            st.caption("ℹ️ No audio channel found in video container; visual frame ensemble applied.")
+
+        # Temporal Consistency Timeline
+        per_frame = extra.get("per_frame_fake_probabilities")
+        if per_frame and len(per_frame) > 1:
+            st.markdown("##### 📈 Frame-by-Frame Manipulation Curve")
+            df = pd.DataFrame({"Frame": range(1, len(per_frame) + 1), "Manipulation Probability": per_frame})
+            st.line_chart(df.set_index("Frame"))
+
+    # Grad-CAM Attention Heatmap
+    if mode == "Image" and isinstance(extra, dict) and extra.get("heatmap_b64"):
+        st.markdown("##### 🔬 Grad-CAM Spatial Explainability Heatmap")
+        b64_data = extra["heatmap_b64"]
+        st.markdown(
+            f"""
+            <div class="heatmap-container">
+                <img src="data:image/png;base64,{b64_data}" class="heatmap-img" alt="Grad-CAM Overlay"/>
+                <p style="color:#94a3b8; font-size:0.82rem; margin-top:0.6rem;">
+                    {"👤 Face Region of Interest (ROI) isolated." if extra.get("face_detected") else "ℹ️ Standard crop applied."}
+                    Warm/red areas indicate spatial pixel anomalies that influenced the prediction.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # Technical Expander
+    with st.expander("🔎 Forensic Audit Parameters"):
+        st.write(f"**Target Media:** `{file_name}`")
+        st.write(
+            f"**File Size:** {file_size/1024/1024:.2f} MB"
+            if mode == "Video"
+            else f"**File Size:** {file_size/1024:.2f} KB"
+        )
+        st.write(f"**SHA-256 Checksum:** `{file_hash}`")
+        st.write(f"**Model Descriptor:** `{result.get('model_source', 'N/A')}`")
+        if extra:
+            clean_extra = extra.copy()
+            if "heatmap_b64" in clean_extra:
+                clean_extra["heatmap_b64"] = "[Encoded PNG Heatmap Stream]"
+            if "frame_probabilities" in clean_extra:
+                clean_extra["frame_probabilities"] = f"[{len(clean_extra['frame_probabilities'])} frames evaluated]"
+            st.json(clean_extra)
+
+    # Download Forensic Report
+    report_data = {
+        "report_id": f"DG-{int(time.time())}",
+        "timestamp_utc": time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime()),
+        "file_name": file_name,
+        "file_size_bytes": file_size,
+        "sha256_hash": file_hash,
+        "modality": mode.lower(),
+        "verdict": result.get("label", "UNKNOWN"),
+        "is_deepfake": fake,
+        "confidence": conf,
+        "fake_probability": prob,
+        "model_source": result.get("model_source", "N/A"),
+        "forensic_metadata": {k: v for k, v in extra.items() if k != "heatmap_b64"},
+    }
+    st.download_button(
+        label="📥 Download Forensic Audit Report (JSON)",
+        data=json.dumps(report_data, indent=2),
+        file_name=f"deepguard_audit_{mode.lower()}_{file_name}.json",
+        mime="application/json",
+    )
+
+
+# ----------------- MAIN LAYOUT -----------------
+left, right = st.columns([1.05, 0.95], gap="large")
+
 with left:
-    icon={"Image":"📸","Audio":"🎙️","Video":"🎥"}[modality]
-    st.markdown(f'<div class="card"><div class="title">{icon} {modality} Detection</div><div class="sub">Upload a {modality.lower()} file to begin analysis.</div></div>',unsafe_allow_html=True)
-    types={"Image":["jpg","jpeg","png","bmp"],"Audio":["wav","mp3","m4a","flac"],"Video":["mp4","avi","mov","mkv"]}
-    uploaded=st.file_uploader(f"Upload {modality.lower()}",type=types[modality],key=f"{modality}_upload",label_visibility="collapsed")
+    icon = {"Image": "📸", "Audio": "🎙️", "Video": "🎥"}[modality]
+    st.markdown(
+        f"""
+        <div class="glass-panel">
+            <div class="panel-title">{icon} {modality} Ingestion & Scanner</div>
+            <div class="panel-sub">Upload a {modality.lower()} file to initiate neural forensic evaluation.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    types = {
+        "Image": ["jpg", "jpeg", "png", "bmp"],
+        "Audio": ["wav", "mp3", "m4a", "flac"],
+        "Video": ["mp4", "avi", "mov", "mkv"],
+    }
+    uploaded = st.file_uploader(
+        f"Upload {modality.lower()}",
+        type=types[modality],
+        key=f"{modality}_upload",
+        label_visibility="collapsed",
+    )
+
     if uploaded:
-        if modality=="Image": st.image(uploaded,use_container_width=True)
-        elif modality=="Audio": st.audio(uploaded)
-        else: st.video(uploaded)
-        st.caption(f"📄 {uploaded.name} · {uploaded.size/1024:.1f} KB")
-        if st.button(f"🔍 Analyze {modality}",key=f"{modality}_predict"):
-            with st.spinner(f"Analyzing {modality.lower()}... Please wait."):
+        if modality == "Image":
+            st.image(uploaded, width="stretch")
+        elif modality == "Audio":
+            st.audio(uploaded)
+        else:
+            st.video(uploaded)
+        st.caption(f"📄 **{uploaded.name}** · {uploaded.size/1024:.1f} KB")
+
+        file_bytes = uploaded.getvalue()
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+        if st.button(f"🔍 Run Forensic Analysis ({modality})", key=f"{modality}_predict"):
+            with st.spinner(f"Running {modality.lower()} forensic models..."):
                 try:
-                    st.session_state[f"{modality}_result"]=predict_file(uploaded,modality)
-                    st.session_state[f"{modality}_name"]=uploaded.name
-                    st.session_state[f"{modality}_size"]=uploaded.size
-                except Exception as e: st.error(f"Analysis failed: {e}")
+                    st.session_state[f"{modality}_result"] = predict_file(uploaded, modality)
+                    st.session_state[f"{modality}_name"] = uploaded.name
+                    st.session_state[f"{modality}_size"] = uploaded.size
+                    st.session_state[f"{modality}_hash"] = file_hash
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
+
 with right:
-    st.markdown('<div class="card"><div class="title">📊 Analysis Result</div><div class="sub">Your prediction will appear here after analysis.</div></div>',unsafe_allow_html=True)
-    result=st.session_state.get(f"{modality}_result")
-    if result: show_result(result,modality,st.session_state.get(f"{modality}_name",""),st.session_state.get(f"{modality}_size",0))
-    else: st.info("👆 Upload a file on the left and click **Analyze** to receive a prediction.")
+    st.markdown(
+        """
+        <div class="glass-panel">
+            <div class="panel-title">📊 Forensic Analysis Verdict</div>
+            <div class="panel-sub">Neural model predictions and artifact diagnostics appear here.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    result = st.session_state.get(f"{modality}_result")
+    if result:
+        show_result(
+            result,
+            modality,
+            st.session_state.get(f"{modality}_name", ""),
+            st.session_state.get(f"{modality}_size", 0),
+            st.session_state.get(f"{modality}_hash", "N/A"),
+        )
+    else:
+        st.markdown(
+            """
+            <div class="empty-state">
+                <div class="empty-radar">📡</div>
+                <h4>System Standby</h4>
+                <p>Upload a media file on the left panel and click <b>Run Forensic Analysis</b> to inspect for synthetic manipulation.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 st.markdown("---")
-st.caption("⚠️ Detection results are model predictions and should not be treated as definitive proof of authenticity.")
-st.markdown('<div class="footer">🛡️ DeepGuard · Multimodal Deepfake Detection System · v2.0</div>',unsafe_allow_html=True)
+st.caption("⚠️ DeepGuard predictions represent probabilistic forensic evaluations based on trained deep-learning models.")
+st.markdown('<div class="footer">🛡️ DeepGuard · Multimodal Deepfake Forensics Engine · v2.2</div>', unsafe_allow_html=True)

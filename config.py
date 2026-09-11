@@ -118,6 +118,8 @@ def build_prediction_result(
         "class_index": class_index,
         "label": LABEL_MAP[class_index],
         "confidence": confidence,
+        "is_deepfake": bool(class_index == FAKE_INDEX),
+        "probability_fake": fake_probability,
         "model_source": model_source,
     }
 
