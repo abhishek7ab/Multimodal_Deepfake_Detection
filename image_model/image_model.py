@@ -25,13 +25,12 @@ def _wrap_binary_model(base_model: tf.keras.Model) -> tf.keras.Model:
     inputs = tf.keras.Input(shape=input_shape, name="legacy_input")
     base_output = base_model(inputs)
 
-    # The legacy model was trained with the dataset's binary class index as
-    # the sigmoid target. With the real_vs_fake directory layout, class index
-    # 1 corresponds to REAL and class index 0 corresponds to FAKE.
-    # Therefore the sigmoid value is the REAL probability, while its
-    # complement is the FAKE probability. Convert to canonical [REAL, FAKE].
+    # The legacy model has a single sigmoid output representing the FAKE
+    # probability. In canonical [REAL, FAKE] format:
+    # Index 0 is REAL: 1.0 - tensor
+    # Index 1 is FAKE: tensor
     outputs = tf.keras.layers.Lambda(
-        lambda tensor: tf.concat([tensor, 1.0 - tensor], axis=-1),
+        lambda tensor: tf.concat([1.0 - tensor, tensor], axis=-1),
         name="binary_to_two_class_probabilities",
     )(base_output)
     return tf.keras.Model(

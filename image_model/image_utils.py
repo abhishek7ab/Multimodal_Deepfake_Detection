@@ -34,13 +34,23 @@ def detect_and_crop_face(image_bgr: np.ndarray, margin: float = 0.25) -> tuple[n
     h, w = image_bgr.shape[:2]
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     cascade = get_face_cascade()
-    min_dim = max(16, int(min(h, w) * 0.1))
+
+    # Search the upper 70% of portrait/full-body images to eliminate false positives on clothing, pads, or knees
+    upper_limit = int(h * 0.70) if h > w else h
     faces = cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.1,
-        minNeighbors=4,
-        minSize=(min_dim, min_dim),
+        gray[:upper_limit, :],
+        scaleFactor=1.08,
+        minNeighbors=3,
+        minSize=(24, 24),
     )
+
+    if len(faces) == 0:
+        faces = cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.08,
+            minNeighbors=3,
+            minSize=(24, 24),
+        )
 
     if len(faces) > 0:
         best_face = max(faces, key=lambda r: int(r[2]) * int(r[3]))
