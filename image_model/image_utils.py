@@ -25,9 +25,15 @@ def preprocess_image_array(image_bgr: np.ndarray, mode: str = "efficientnet") ->
     image_rgb = prepare_rgb_image(image_bgr)
 
     if mode == "efficientnet":
+        # The compliant model expects the preprocessing convention used by
+        # Keras EfficientNet.
         image_rgb = tf.keras.applications.efficientnet.preprocess_input(image_rgb)
-    elif mode == "legacy_rgb_normalized":
-        image_rgb = image_rgb / 255.0
+    elif mode == "legacy_rgb":
+        # The legacy deepfake_cnn.keras contains the EfficientNet backbone's
+        # own Rescaling layer, so inference must receive RGB pixels in the
+        # original 0..255 range. Dividing by 255 here would double-normalize
+        # the input and change the distribution seen during training.
+        pass
     else:
         raise ValueError(f"Unknown image preprocessing mode: {mode}")
 
