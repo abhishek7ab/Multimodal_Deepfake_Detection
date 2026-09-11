@@ -1,6 +1,6 @@
-streamlit==1.28.1
-tensorflow==2.19.0
-keras==3.13.2
+streamlit>=1.28.0
+tensorflow>=2.16.0
+keras>=3.0.0
 numpy
 opencv-python-headless
 scipy
@@ -11,3 +11,5 @@ scikit-learn
 fastapi
 uvicorn
 python-multipart
+imageio-ffmpeg
+pandas

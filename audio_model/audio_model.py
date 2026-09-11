@@ -81,6 +81,14 @@ def compute_audio_class_weights(labels: Sequence[int]) -> dict[int, float]:
 
 
 def _load_keras_model(model_path: Path) -> tf.keras.Model:
+    if model_path.exists() and model_path.stat().st_size < 10000:
+        try:
+            import subprocess
+
+            print(f"[Streamlit Cloud LFS] Auto-pulling LFS for {model_path}...")
+            subprocess.run(["git", "lfs", "pull"], check=False, timeout=120)
+        except Exception as exc:
+            print(f"[WARN LFS] Could not auto-pull git-lfs: {exc}")
     return tf.keras.models.load_model(model_path, compile=False)
 
 
