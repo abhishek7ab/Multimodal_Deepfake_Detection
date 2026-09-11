@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import cv2
 import numpy as np
 import tensorflow as tf
@@ -13,7 +15,9 @@ _FACE_CASCADE: cv2.CascadeClassifier | None = None
 def get_face_cascade() -> cv2.CascadeClassifier:
     global _FACE_CASCADE
     if _FACE_CASCADE is None:
-        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        alt2_path = cv2.data.haarcascades + "haarcascade_frontalface_alt2.xml"
+        default_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        cascade_path = alt2_path if Path(alt2_path).exists() else default_path
         _FACE_CASCADE = cv2.CascadeClassifier(cascade_path)
     return _FACE_CASCADE
 
@@ -35,25 +39,35 @@ def detect_and_crop_face(image_bgr: np.ndarray, margin: float = 0.25) -> tuple[n
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     cascade = get_face_cascade()
 
-    # Search the upper 70% of portrait/full-body images to eliminate false positives on clothing, pads, or knees
-    upper_limit = int(h * 0.70) if h > w else h
     faces = cascade.detectMultiScale(
-        gray[:upper_limit, :],
-        scaleFactor=1.08,
+        gray,
+        scaleFactor=1.1,
         minNeighbors=3,
-        minSize=(24, 24),
+        minSize=(28, 28),
     )
 
     if len(faces) == 0:
-        faces = cascade.detectMultiScale(
+        default_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        def_cascade = cv2.CascadeClassifier(default_path)
+        faces = def_cascade.detectMultiScale(
             gray,
             scaleFactor=1.08,
             minNeighbors=3,
-            minSize=(24, 24),
+            minSize=(28, 28),
         )
 
     if len(faces) > 0:
-        best_face = max(faces, key=lambda r: int(r[2]) * int(r[3]))
+        # Score candidates to prefer upper-center head regions over sports gloves, jersey logos, or knee pads
+        def _score_candidate(f):
+            fx, fy, fw, fh = int(f[0]), int(f[1]), int(f[2]), int(f[3])
+            y_norm = fy / max(h, 1)
+            x_center_dist = abs((fx + fw / 2.0) - w / 2.0) / max(w, 1)
+            # Heavy penalty for detections located in lower half or extreme borders
+            pos_penalty = (y_norm * 2.8) + (x_center_dist * 0.8)
+            area_score = (fw * fh) / max(w * h, 1)
+            return area_score - (pos_penalty * 0.15)
+
+        best_face = max(faces, key=_score_candidate)
         x, y, fw, fh = (int(best_face[0]), int(best_face[1]), int(best_face[2]), int(best_face[3]))
         mx = int(fw * margin)
         my = int(fh * margin)
