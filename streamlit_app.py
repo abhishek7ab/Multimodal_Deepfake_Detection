@@ -498,7 +498,7 @@ modality = st.sidebar.radio("Inspection Modality", ["Image", "Audio", "Video"])
 
 info = {
     "Image": "Analyzes facial landmarks, texture anomalies & Grad-CAM spatial heatmaps.",
-    "Audio": "Analyzes speech frequencies using 40-band MFCC spectral forensics.",
+    "Audio": "Analyzes speech frequencies using 128-band Mel Spectrogram neural forensics.",
     "Video": "Multi-frame spatial ensemble fused with automated acoustic track analysis.",
 }
 formats = {
@@ -677,6 +677,53 @@ def show_result(result, mode, file_name, file_size, file_hash):
             df = pd.DataFrame({"Frame": range(1, len(per_frame) + 1), "Manipulation Probability": per_frame})
             st.line_chart(df.set_index("Frame"))
 
+    # Acoustic Spectral Forensics Panel (Audio Modality)
+    if mode == "Audio" and isinstance(extra, dict):
+        if extra.get("spectrogram_b64"):
+            st.markdown("##### 🎙️ Acoustic Spectral Forensics (Mel Spectrogram)")
+            b64_spec = extra["spectrogram_b64"]
+            st.markdown(
+                f"""
+                <div class="heatmap-container">
+                    <img src="data:image/png;base64,{b64_spec}" class="heatmap-img" style="max-height: 180px; width: 100%; object-fit: cover;" alt="Mel Spectrogram"/>
+                    <p style="color:#94a3b8; font-size:0.82rem; margin-top:0.6rem;">
+                        Frequency-domain representation ({extra.get('feature_type', 'mel_spectrogram')} · {extra.get('num_features', 128)} bands).
+                        Synthetic voice clones and neural vocoders typically exhibit unnaturally smooth formants, missing micro-jitter, or high-frequency phase artifacts.
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        dur = extra.get("duration_seconds")
+        sr_val = extra.get("target_sample_rate") or extra.get("original_sample_rate")
+        rms = extra.get("rms_energy")
+        peak = extra.get("peak_amplitude")
+        if dur is not None or sr_val is not None:
+            st.markdown(
+                f"""
+                <div class="fusion-box" style="grid-template-columns: repeat(4, 1fr);">
+                    <div class="fusion-item">
+                        <small>Duration</small>
+                        <b>{dur:.2f}s</b>
+                    </div>
+                    <div class="fusion-item">
+                        <small>Sample Rate</small>
+                        <b>{sr_val or 16000} Hz</b>
+                    </div>
+                    <div class="fusion-item">
+                        <small>RMS Energy</small>
+                        <b>{rms:.4f}</b>
+                    </div>
+                    <div class="fusion-item">
+                        <small>Peak Amplitude</small>
+                        <b>{peak:.3f}</b>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
     # Grad-CAM Attention Heatmap
     if mode == "Image" and isinstance(extra, dict) and extra.get("heatmap_b64"):
         st.markdown("##### 🔬 Grad-CAM Spatial Explainability Heatmap")
@@ -807,20 +854,21 @@ def show_result(result, mode, file_name, file_size, file_hash):
         )
         st.write(f"**SHA-256 Checksum:** `{file_hash}`")
         st.write(f"**Model Descriptor:** `{result.get('model_source', 'N/A')}`")
-        _SKIP = {"heatmap_b64", "label_mapping", "raw_probabilities"}
+        _SKIP = {"heatmap_b64", "spectrogram_b64", "label_mapping", "raw_probabilities"}
         clean_extra = {
             k: ("[Encoded PNG Heatmap Stream]" if k == "heatmap_b64" else
-                (f"[{len(v)} frames evaluated]" if k == "frame_probabilities" else v))
+                ("[Encoded PNG Spectrogram Stream]" if k == "spectrogram_b64" else
+                (f"[{len(v)} frames evaluated]" if k == "frame_probabilities" else v)))
             for k, v in result.items() if k not in _SKIP
         }
         st.json(clean_extra)
 
     # Download Forensic Report
-    # Exclude base prediction fields + binary heatmap from the JSON metadata
+    # Exclude base prediction fields + binary heatmap/spectrogram from the JSON metadata
     _BASE_KEYS = {
         "modality", "label_mapping", "threshold", "raw_probabilities",
         "class_index", "label", "confidence", "is_deepfake",
-        "probability_fake", "model_source", "heatmap_b64",
+        "probability_fake", "model_source", "heatmap_b64", "spectrogram_b64",
     }
     report_data = {
         "report_id": f"DG-{int(time.time())}",

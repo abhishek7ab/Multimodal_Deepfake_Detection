@@ -23,6 +23,7 @@ class LoadedAudioModel:
 def _wrap_binary_model(base_model: tf.keras.Model) -> tf.keras.Model:
     input_shape = tuple(base_model.input_shape[1:])
     inputs = tf.keras.Input(shape=input_shape, name="legacy_input")
+    base_outputs = base_model(inputs)
     # The legacy model has a single sigmoid output representing the FAKE
     # probability. In canonical [REAL, FAKE] format:
     # Index 0 is REAL: 1.0 - tensor
@@ -119,17 +120,6 @@ def load_audio_model() -> LoadedAudioModel:
 
         raise ValueError(f"Unsupported audio model output shape: {model.output_shape}")
 
-    if AUDIO_CONFIG.legacy_weights_path.exists():
-        legacy_model = build_legacy_audio_model()
-        legacy_model.load_weights(AUDIO_CONFIG.legacy_weights_path)
-        wrapped = _wrap_binary_model(legacy_model)
-        return LoadedAudioModel(
-            model=wrapped,
-            source_path=str(AUDIO_CONFIG.legacy_weights_path),
-            preprocessing="legacy_log_mel",
-            legacy_binary_head=True,
-        )
-
     if AUDIO_CONFIG.legacy_model_path.exists():
         model = _load_keras_model(AUDIO_CONFIG.legacy_model_path)
         output_units = int(model.output_shape[-1])
@@ -153,12 +143,23 @@ def load_audio_model() -> LoadedAudioModel:
 
         raise ValueError(f"Unsupported audio model output shape: {model.output_shape}")
 
+    if AUDIO_CONFIG.legacy_weights_path.exists():
+        legacy_model = build_legacy_audio_model()
+        legacy_model.load_weights(AUDIO_CONFIG.legacy_weights_path)
+        wrapped = _wrap_binary_model(legacy_model)
+        return LoadedAudioModel(
+            model=wrapped,
+            source_path=str(AUDIO_CONFIG.legacy_weights_path),
+            preprocessing="legacy_log_mel",
+            legacy_binary_head=True,
+        )
+
     checked_paths = ", ".join(
         str(path)
         for path in [
             AUDIO_CONFIG.compliant_model_path,
-            AUDIO_CONFIG.legacy_weights_path,
             AUDIO_CONFIG.legacy_model_path,
+            AUDIO_CONFIG.legacy_weights_path,
         ]
     )
     raise FileNotFoundError(f"No audio model found. Checked: {checked_paths}")

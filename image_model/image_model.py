@@ -25,12 +25,13 @@ def _wrap_binary_model(base_model: tf.keras.Model) -> tf.keras.Model:
     inputs = tf.keras.Input(shape=input_shape, name="legacy_input")
     base_output = base_model(inputs)
 
-    # The legacy model has a single sigmoid output representing the FAKE
-    # probability. In canonical [REAL, FAKE] format:
-    # Index 0 is REAL: 1.0 - tensor
-    # Index 1 is FAKE: tensor
+    # The binary model sigmoid outputs P(class=1) = P(REAL) (since dataset
+    # folders are sorted alphabetically: 0=fake, 1=real).
+    # In canonical [REAL, FAKE] format:
+    # Index 0 is REAL: tensor
+    # Index 1 is FAKE: 1.0 - tensor
     outputs = tf.keras.layers.Lambda(
-        lambda tensor: tf.concat([1.0 - tensor, tensor], axis=-1),
+        lambda tensor: tf.concat([tensor, 1.0 - tensor], axis=-1),
         name="binary_to_two_class_probabilities",
     )(base_output)
     return tf.keras.Model(
