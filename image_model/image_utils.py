@@ -95,7 +95,7 @@ def preprocess_image_array(
 
     if mode == "efficientnet":
         processed = tf.keras.applications.efficientnet.preprocess_input(image_rgb)
-    elif mode == "legacy_rgb_normalized":
+    elif mode in ("legacy_rgb", "legacy_rgb_normalized"):
         processed = image_rgb / 255.0
     else:
         raise ValueError(f"Unknown image preprocessing mode: {mode}")
