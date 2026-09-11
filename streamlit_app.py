@@ -591,7 +591,10 @@ def show_result(result, mode, file_name, file_size, file_hash):
     # Check DCT result upfront so we can override the main verdict card
     dct_analysis = result.get("dct_analysis") if mode == "Image" else None
     dct_ai_prob = float(dct_analysis.get("ai_synthesis_probability") or 0) if dct_analysis else 0.0
-    dct_flags_ai = (not fake) and (dct_ai_prob >= 0.35)
+    # Definitive AI verdict only at HIGH confidence (>=0.60) to avoid false positives
+    dct_flags_ai = (not fake) and (dct_ai_prob >= 0.60)
+    # Elevated suspicion (0.38-0.60): show warning but don't override main verdict
+    dct_elevated  = (not fake) and (0.38 <= dct_ai_prob < 0.60)
 
     if dct_flags_ai:
         # Override: DCT says AI-generated even though CNN missed it
@@ -696,10 +699,10 @@ def show_result(result, mode, file_name, file_size, file_hash):
         dct = extra["dct_analysis"]
         ai_prob = dct.get("ai_synthesis_probability")
         if ai_prob is not None:
-            # Updated thresholds — more sensitive than before
-            if ai_prob >= 0.55:
+            # Updated thresholds matching 3-tier scoring in dct_detector.py
+            if ai_prob >= 0.60:
                 badge_cls, verdict_icon = "high", "🔴"
-            elif ai_prob >= 0.35:
+            elif ai_prob >= 0.38:
                 badge_cls, verdict_icon = "mid", "🟡"
             else:
                 badge_cls, verdict_icon = "low", "🟢"
@@ -713,7 +716,7 @@ def show_result(result, mode, file_name, file_size, file_hash):
             av  = dct.get('azimuthal_variance', 0)
             note = dct.get('note', '')
 
-            # Banner: CNN says real but DCT flags AI-generated
+            # Banner: definitive AI-generated OR elevated suspicion
             combined_banner = ""
             if dct_flags_ai:
                 combined_banner = f"""
@@ -737,6 +740,25 @@ def show_result(result, mode, file_name, file_size, file_hash):
                         </ul>
                         Tools like <b>Stable Diffusion, Midjourney, DALL-E, Adobe Firefly</b> and similar AI
                         image generators produce these exact spectral signatures.
+                    </div>
+                </div>
+                """
+            elif dct_elevated:
+                combined_banner = f"""
+                <div style="
+                    background: linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(234,88,12,0.08) 100%);
+                    border: 1px solid rgba(245,158,11,0.40);
+                    border-radius: 14px;
+                    padding: 0.85rem 1.1rem;
+                    margin-bottom: 0.9rem;
+                ">
+                    <div style="font-family:'Outfit',sans-serif; font-weight:800; color:#fbbf24; font-size:1.05rem; margin-bottom:0.35rem;">
+                        ⚠️ Elevated AI-Synthesis Suspicion ({ai_prob:.0%})
+                    </div>
+                    <div style="color:#fde68a; font-size:0.85rem; line-height:1.6;">
+                        Spectral analysis detected multiple AI-image markers. This image has a <b>high likelihood
+                        of being AI-generated</b> (Stable Diffusion, Midjourney, DALL-E, etc.) even though the
+                        confidence score did not reach the definitive threshold.
                     </div>
                 </div>
                 """

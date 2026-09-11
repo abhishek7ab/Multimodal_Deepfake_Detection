@@ -327,21 +327,44 @@ def analyse_dct_artifacts(image_bgr: np.ndarray) -> dict[str, Any]:
             + 0.05 * peak_susp    # weak: mainly for old GAN grids
         )
 
+        # ------------------------------------------------------------------
+        # JPEG blocking correction
+        # ------------------------------------------------------------------
+        # Real camera JPEG photos (sports, news, portraits) have strong JPEG
+        # quantisation-grid blocking at 8-px boundaries. AI images converted
+        # to JPEG later have much less blocking because the synthesis is smooth.
+        # When blocking is strong it is a reliable indicator of a real photo.
+        # Apply a downward correction factor to reduce false-positive AI flags.
+        jpeg_corrected = False
+        if blocking > 0.09:
+            # Map: blocking=0.09 → factor≈1.0; blocking=0.20 → factor≈0.55
+            jpeg_factor = max(0.45, 1.0 - (blocking - 0.09) * 4.2)
+            score = score * jpeg_factor
+            jpeg_corrected = True
+
+        score = float(np.clip(score, 0.0, 1.0))
+
         # Build human-readable note
-        if score >= 0.55:
+        if score >= 0.60:
             note = (
-                "⚠️ High AI-synthesis probability — spectral, noise-floor, and "
-                "channel-independence analysis all show markers consistent with "
-                "diffusion-model or GAN generation. CNN verdict likely unreliable for this image type."
+                "🔴 High AI-synthesis probability — spectral, noise-floor, and "
+                "channel-independence analysis strongly indicate this image was generated "
+                "by a diffusion model or GAN (Stable Diffusion, Midjourney, DALL-E, etc.)."
             )
-        elif score >= 0.35:
+        elif score >= 0.38:
             note = (
-                "🟡 Moderate AI-synthesis indicators — noise floor and spectral "
-                "analysis detected some characteristics of synthetic images. "
-                "The CNN may not be reliable here; consider additional verification."
+                "🟡 Elevated AI-synthesis indicators — multiple spectral signals are "
+                "consistent with AI-generated imagery. Consider this a strong suspicion signal."
+            )
+        elif score >= 0.20:
+            note = (
+                "🟠 Mild AI indicators — some spectral anomalies detected, but inconclusive. "
+                "Could be AI-generated or a real photo with heavy compression."
             )
         else:
-            note = "🟢 Low AI-synthesis markers — no strong frequency-domain synthesis signals detected."
+            note = "🟢 Low AI-synthesis markers — spectral fingerprints consistent with a real photograph."
+        if jpeg_corrected:
+            note += " (JPEG compression correction applied — strong blocking artifacts detected.)"
 
         return {
             "ai_synthesis_probability": round(float(score), 4),
@@ -352,6 +375,7 @@ def analyse_dct_artifacts(image_bgr: np.ndarray) -> dict[str, Any]:
             "noise_floor_cv": round(noise_cv, 4),
             "channel_correlation": round(ch_corr, 4),
             "azimuthal_variance": round(az_var, 4),
+            "jpeg_corrected": jpeg_corrected,
             "note": note,
         }
 
