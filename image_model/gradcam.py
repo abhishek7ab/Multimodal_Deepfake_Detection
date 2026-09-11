@@ -81,18 +81,30 @@ def generate_gradcam_heatmap(
 def overlay_heatmap(
     heatmap: np.ndarray,
     original_bgr: np.ndarray,
+    crop_coords: list[int] | tuple[int, int, int, int] | None = None,
     alpha: float = 0.45,
     colormap: int = cv2.COLORMAP_JET,
 ) -> np.ndarray:
     """
     Overlays the normalized heatmap [0, 1] onto the original image.
+    If crop_coords [x1, y1, x2, y2] is provided, blends the heatmap precisely over
+    the detected face/context region.
     Returns RGB image ready for display.
     """
-    h, w = original_bgr.shape[:2]
-    resized_heatmap = cv2.resize(heatmap, (w, h))
-    scaled_heatmap = np.uint8(255 * np.clip(resized_heatmap, 0, 1))
+    canvas_bgr = original_bgr.copy()
+    if crop_coords is not None and len(crop_coords) == 4:
+        x1, y1, x2, y2 = crop_coords
+        crop_w, crop_h = max(1, x2 - x1), max(1, y2 - y1)
+        resized_heatmap = cv2.resize(heatmap, (crop_w, crop_h))
+        scaled_heatmap = np.uint8(255 * np.clip(resized_heatmap, 0, 1))
+        color_heatmap = cv2.applyColorMap(scaled_heatmap, colormap)
+        roi = canvas_bgr[y1:y2, x1:x2]
+        canvas_bgr[y1:y2, x1:x2] = cv2.addWeighted(color_heatmap, alpha, roi, 1.0 - alpha, 0)
+    else:
+        h, w = original_bgr.shape[:2]
+        resized_heatmap = cv2.resize(heatmap, (w, h))
+        scaled_heatmap = np.uint8(255 * np.clip(resized_heatmap, 0, 1))
+        color_heatmap = cv2.applyColorMap(scaled_heatmap, colormap)
+        canvas_bgr = cv2.addWeighted(color_heatmap, alpha, original_bgr, 1.0 - alpha, 0)
 
-    color_heatmap = cv2.applyColorMap(scaled_heatmap, colormap)
-    superimposed = cv2.addWeighted(color_heatmap, alpha, original_bgr, 1.0 - alpha, 0)
-    superimposed_rgb = cv2.cvtColor(superimposed, cv2.COLOR_BGR2RGB)
-    return superimposed_rgb
+    return cv2.cvtColor(canvas_bgr, cv2.COLOR_BGR2RGB)
