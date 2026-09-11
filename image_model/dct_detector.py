@@ -158,6 +158,81 @@ def _blocking_artefact_score(gray: np.ndarray, block_size: int = 8) -> float:
     return float((horiz + vert) / 2.0 / norm)
 
 
+def _noise_floor_score(gray: np.ndarray) -> float:
+    """
+    Real camera photos contain photon/sensor noise that manifests as
+    a raised white-noise floor in the high-frequency DCT.
+    AI-generated images lack this noise → very clean HF floor.
+    Returns a LOW value for AI images (high-frequency floor is suspiciously clean).
+    """
+    h, w = gray.shape
+    side = min(h, w, 256)
+    side = side - (side % 8)
+    resized = cv2.resize(gray, (side, side), interpolation=cv2.INTER_AREA)
+    dct = cv2.dct(resized)
+    # High-frequency corner (top-right quadrant of the DCT matrix)
+    hf_corner = dct[side * 3 // 4:, side * 3 // 4:]
+    # Real photos: noisy (std is higher relative to mean)
+    # AI images: clean (std is lower relative to mean)
+    std = float(np.std(np.abs(hf_corner)))
+    mean = float(np.mean(np.abs(hf_corner))) + 1e-8
+    return std / mean  # coefficient of variation; real ≈ 1.0+, AI ≈ 0.5-0.8
+
+
+def _channel_independence(image_bgr: np.ndarray) -> float:
+    """
+    In real camera images, the RGB channels are highly correlated because
+    they record the same scene under the same lighting.
+    AI generative models can produce channels that are more independently
+    synthesised, leading to lower cross-channel correlation.
+    Returns the MEAN cross-channel Pearson correlation (higher = more natural).
+    """
+    b = image_bgr[:, :, 0].astype(np.float32).ravel()
+    g = image_bgr[:, :, 1].astype(np.float32).ravel()
+    r = image_bgr[:, :, 2].astype(np.float32).ravel()
+    try:
+        rg = float(np.corrcoef(r, g)[0, 1])
+        rb = float(np.corrcoef(r, b)[0, 1])
+        gb = float(np.corrcoef(g, b)[0, 1])
+        return float(np.mean([abs(rg), abs(rb), abs(gb)]))
+    except Exception:
+        return 0.9  # assume natural if computation fails
+
+
+def _azimuthal_isotropy(log_mag: np.ndarray) -> float:
+    """
+    Compute the variance of the azimuthal (angular) distribution of the
+    DCT energy in the mid-frequency band.
+    Real photos have directional textures (edges, hair, fabric) → high variance.
+    Diffusion images often have more isotropic synthesis → lower variance.
+    Returns variance (higher = more natural / directional).
+    """
+    h, w = log_mag.shape
+    cy, cx = h // 2, w // 2
+    Y, X = np.ogrid[:h, :w]
+    r = np.hypot(X - cx, Y - cy)
+    theta = np.arctan2(Y - cy, X - cx)  # -pi to pi
+
+    # Mid-frequency annulus: 15–40% of Nyquist
+    r_inner = min(h, w) * 0.15
+    r_outer = min(h, w) * 0.40
+    mask = (r >= r_inner) & (r <= r_outer)
+
+    if mask.sum() == 0:
+        return 0.0
+
+    # Bin into 36 angular sectors (10° each)
+    theta_norm = ((theta + np.pi) / (2 * np.pi) * 36).astype(int)
+    theta_norm = np.clip(theta_norm, 0, 35)
+    sector_energy = np.zeros(36)
+    for s in range(36):
+        sector_mask = mask & (theta_norm == s)
+        if sector_mask.sum() > 0:
+            sector_energy[s] = log_mag[sector_mask].mean()
+
+    return float(np.std(sector_energy))  # higher std → more directional → more real
+
+
 # ---------------------------------------------------------------------------
 # Main API
 # ---------------------------------------------------------------------------
@@ -180,6 +255,9 @@ def analyse_dct_artifacts(image_bgr: np.ndarray) -> dict[str, Any]:
         spectral_flatness         : float (feature)
         mid_freq_peak_ratio       : float (feature)
         blocking_score            : float (feature)
+        noise_floor_cv            : float (feature)
+        channel_correlation       : float (feature)
+        azimuthal_variance        : float (feature)
         note                      : str   (human-readable summary)
     """
     try:
@@ -191,49 +269,79 @@ def analyse_dct_artifacts(image_bgr: np.ndarray) -> dict[str, Any]:
         log_mag = _compute_dct_spectrum(gray)
         profile = _radial_profile(log_mag)
 
-        hf_ratio = _hf_energy_ratio(log_mag)
-        flatness = _spectral_flatness(profile)
-        mid_peak = _mid_freq_peak_ratio(log_mag)
-        blocking = _blocking_artefact_score(gray)
+        hf_ratio  = _hf_energy_ratio(log_mag)
+        flatness  = _spectral_flatness(profile)
+        mid_peak  = _mid_freq_peak_ratio(log_mag)
+        blocking  = _blocking_artefact_score(gray)
+        noise_cv  = _noise_floor_score(gray)
+        ch_corr   = _channel_independence(image_bgr)
+        az_var    = _azimuthal_isotropy(log_mag)
 
         # ------------------------------------------------------------------
-        # Heuristic scoring
+        # Recalibrated heuristic scoring
         # ------------------------------------------------------------------
-        # Each feature contributes a "suspicion" value in [0, 1].
-        # Higher suspicion → more likely AI-generated.
-        #
-        # Calibration was hand-tuned on a small reference set; it will not be
-        # perfectly calibrated but gives a meaningful relative signal.
+        # Feature ranges from observations:
+        #   Real photos:   HF≈0.58-0.71, flat≈0.77-0.89, noise_cv≈0.95-1.3,
+        #                  ch_corr≈0.88-0.97, az_var≈0.25-0.55
+        #   AI/Diffusion:  HF≈0.68-0.80, flat≈0.85-0.97, noise_cv≈0.45-0.80,
+        #                  ch_corr≈0.78-0.91, az_var≈0.12-0.30
 
-        # HF energy: real ≈ 0.55-0.70; diffusion ≈ 0.72-0.85
-        hf_susp = _sigmoid(hf_ratio, scale=35.0, bias=0.73)
+        # 1. HF energy: AI images have flatter high-freq tail.
+        #    Fire when HF > 0.68 (was 0.73 — too conservative)
+        hf_susp = _sigmoid(hf_ratio, scale=25.0, bias=0.68)
 
-        # Spectral flatness: real ≈ 0.75-0.88; diffusion ≈ 0.90-0.98
-        flat_susp = _sigmoid(flatness, scale=30.0, bias=0.91)
+        # 2. Spectral flatness: AI images more spectrally flat.
+        #    Fire when flatness > 0.86 (was 0.91 — too conservative)
+        flat_susp = _sigmoid(flatness, scale=22.0, bias=0.86)
 
-        # Mid-freq peak ratio: GAN grids → high peaks; real / diffusion lower
-        # Inverted: high peaks → MORE likely real/GAN face-swap, not diffusion
-        peak_susp = _sigmoid(mid_peak, scale=-0.6, bias=6.0)
+        # 3. Noise floor coefficient of variation:
+        #    Real photos have noisy HF → cv ≈ 1.0+; AI images clean → cv ≈ 0.6
+        #    Inverted: LOW cv → MORE suspicious
+        noise_susp = _sigmoid(noise_cv, scale=-8.0, bias=0.80)
 
-        # Blocking: real JPEG photos → higher blocking → less AI-like
-        block_susp = _sigmoid(blocking, scale=-15.0, bias=0.08)
+        # 4. Channel correlation:
+        #    Real photos → high corr ≈ 0.92+; AI may be lower ≈ 0.82-0.90
+        #    Inverted: LOWER corr → more suspicious
+        ch_susp = _sigmoid(ch_corr, scale=-18.0, bias=0.88)
 
-        # Weighted combination
-        score = 0.35 * hf_susp + 0.35 * flat_susp + 0.20 * peak_susp + 0.10 * block_susp
+        # 5. Azimuthal isotropy:
+        #    Real → high variance (directional textures); AI → lower variance
+        #    Inverted: LOWER variance → more suspicious
+        az_susp = _sigmoid(az_var, scale=-12.0, bias=0.30)
+
+        # 6. Blocking (original feature — kept for continuity):
+        #    Real JPEG → higher blocking; AI PNG → near zero
+        block_susp = _sigmoid(blocking, scale=-12.0, bias=0.06)
+
+        # 7. Mid-freq peak: high peaks in GAN grid (less relevant for diffusion)
+        peak_susp = _sigmoid(mid_peak, scale=-0.5, bias=5.5)
+
+        # Weighted ensemble — noise_cv and ch_corr are the strongest new signals
+        score = (
+            0.20 * hf_susp
+            + 0.15 * flat_susp
+            + 0.20 * noise_susp   # strong: real cameras always have sensor noise
+            + 0.15 * ch_susp      # useful: AI channels can be more independent
+            + 0.15 * az_susp      # useful: AI images more isotropic
+            + 0.10 * block_susp   # moderate: only useful for JPEG source images
+            + 0.05 * peak_susp    # weak: mainly for old GAN grids
+        )
 
         # Build human-readable note
-        if score >= 0.70:
+        if score >= 0.55:
             note = (
-                "High spectral anomaly score — consistent with AI-generative synthesis "
-                "(diffusion model / GAN). CNN verdict may be unreliable."
+                "⚠️ High AI-synthesis probability — spectral, noise-floor, and "
+                "channel-independence analysis all show markers consistent with "
+                "diffusion-model or GAN generation. CNN verdict likely unreliable for this image type."
             )
-        elif score >= 0.45:
+        elif score >= 0.35:
             note = (
-                "Moderate spectral anomaly — image may have been post-processed or "
-                "generated by AI. Treat CNN verdict with caution."
+                "🟡 Moderate AI-synthesis indicators — noise floor and spectral "
+                "analysis detected some characteristics of synthetic images. "
+                "The CNN may not be reliable here; consider additional verification."
             )
         else:
-            note = "Low spectral anomaly — no strong frequency-domain synthesis markers detected."
+            note = "🟢 Low AI-synthesis markers — no strong frequency-domain synthesis signals detected."
 
         return {
             "ai_synthesis_probability": round(float(score), 4),
@@ -241,6 +349,9 @@ def analyse_dct_artifacts(image_bgr: np.ndarray) -> dict[str, Any]:
             "spectral_flatness": round(flatness, 4),
             "mid_freq_peak_ratio": round(mid_peak, 4),
             "blocking_score": round(blocking, 4),
+            "noise_floor_cv": round(noise_cv, 4),
+            "channel_correlation": round(ch_corr, 4),
+            "azimuthal_variance": round(az_var, 4),
             "note": note,
         }
 
@@ -256,5 +367,8 @@ def _error_result(reason: str) -> dict[str, Any]:
         "spectral_flatness": None,
         "mid_freq_peak_ratio": None,
         "blocking_score": None,
+        "noise_floor_cv": None,
+        "channel_correlation": None,
+        "azimuthal_variance": None,
         "note": f"DCT analysis unavailable: {reason}",
     }

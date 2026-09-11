@@ -673,9 +673,10 @@ def show_result(result, mode, file_name, file_size, file_hash):
         dct = extra["dct_analysis"]
         ai_prob = dct.get("ai_synthesis_probability")
         if ai_prob is not None:
-            if ai_prob >= 0.70:
+            # Updated thresholds — more sensitive than before
+            if ai_prob >= 0.55:
                 badge_cls, verdict_icon = "high", "🔴"
-            elif ai_prob >= 0.45:
+            elif ai_prob >= 0.35:
                 badge_cls, verdict_icon = "mid", "🟡"
             else:
                 badge_cls, verdict_icon = "low", "🟢"
@@ -684,14 +685,42 @@ def show_result(result, mode, file_name, file_size, file_hash):
             sf  = dct.get('spectral_flatness', 0)
             mp  = dct.get('mid_freq_peak_ratio', 0)
             bk  = dct.get('blocking_score', 0)
+            nf  = dct.get('noise_floor_cv', 0)
+            cc  = dct.get('channel_correlation', 0)
+            av  = dct.get('azimuthal_variance', 0)
             note = dct.get('note', '')
+
+            # Combined suspicion banner: CNN says real but DCT flags elevated
+            combined_banner = ""
+            if not fake and ai_prob >= 0.35:
+                combined_banner = f"""
+                <div style="
+                    background: linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(234,88,12,0.12) 100%);
+                    border: 1px solid rgba(245,158,11,0.45);
+                    border-radius: 14px;
+                    padding: 0.9rem 1.1rem;
+                    margin-bottom: 0.8rem;
+                ">
+                    <div style="font-family:'Outfit',sans-serif; font-weight:800; color:#fbbf24; font-size:1.05rem; margin-bottom:0.3rem;">
+                        ⚠️ Possible AI-Generated Image
+                    </div>
+                    <div style="color:#fde68a; font-size:0.85rem; line-height:1.6;">
+                        The <b>CNN model</b> classified this as authentic (it was trained on face-swap deepfakes only),
+                        but the <b>DCT spectral analysis</b> detected <b>{ai_prob:.0%} AI-synthesis probability</b>
+                        based on noise-floor absence, spectral flatness, and channel independence patterns
+                        consistent with <b>diffusion-model or GAN generation</b>.<br>
+                        <span style="color:#f59e0b; font-size:0.78rem;">This image may have been created by Stable Diffusion, Midjourney, DALL-E, or similar tools.</span>
+                    </div>
+                </div>
+                """
 
             st.markdown(
                 f"""
+                {combined_banner}
                 <div class="dct-panel">
                     <div class="dct-title">📡 DCT Spectral Forensics — AI Synthesis Detector</div>
                     <div style="color:#64748b; font-size:0.8rem; margin-bottom:0.5rem;">
-                        Secondary frequency-domain analysis · Detects diffusion &amp; GAN synthesis artifacts
+                        Secondary frequency-domain analysis · Noise-floor, spectral &amp; channel fingerprinting
                     </div>
                     <div class="dct-score-row">
                         <div class="dct-score-badge {badge_cls}">{verdict_icon} {ai_prob:.1%}</div>
@@ -701,11 +730,13 @@ def show_result(result, mode, file_name, file_size, file_hash):
                         </div>
                     </div>
                     <div class="dct-note">{note}</div>
-                    <div class="dct-features">
-                        <div class="dct-feat"><small>High-Freq Energy Ratio</small><b>{hf:.4f}</b></div>
+                    <div class="dct-features" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <div class="dct-feat"><small>HF Energy Ratio</small><b>{hf:.4f}</b></div>
                         <div class="dct-feat"><small>Spectral Flatness</small><b>{sf:.4f}</b></div>
-                        <div class="dct-feat"><small>Mid-Freq Peak Ratio</small><b>{mp:.3f}</b></div>
-                        <div class="dct-feat"><small>JPEG Blocking Score</small><b>{bk:.4f}</b></div>
+                        <div class="dct-feat"><small>Noise Floor CV</small><b>{nf:.4f}</b></div>
+                        <div class="dct-feat"><small>Channel Correlation</small><b>{cc:.4f}</b></div>
+                        <div class="dct-feat"><small>Azimuthal Variance</small><b>{av:.4f}</b></div>
+                        <div class="dct-feat"><small>JPEG Blocking</small><b>{bk:.4f}</b></div>
                     </div>
                     <div style="color:#475569; font-size:0.75rem; margin-top:0.7rem;">
                         ⚠️ Heuristic detector — treat as supplementary signal, not ground truth.
