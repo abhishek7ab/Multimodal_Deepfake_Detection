@@ -617,7 +617,9 @@ def show_result(result, mode, file_name, file_size, file_hash):
 
     st.progress(min(max(conf, 0.0), 1.0), text=f"Inference Certainty: {conf:.1%}")
 
-    extra = result.get("extra", {})
+    # NOTE: build_prediction_result() does payload.update(extra), so all extra
+    # fields are at the TOP LEVEL of result (no nested 'extra' key).
+    extra = result
 
     # Multimodal Video Fusion Panel
     if mode == "Video" and isinstance(extra, dict):
@@ -725,15 +727,21 @@ def show_result(result, mode, file_name, file_size, file_hash):
         )
         st.write(f"**SHA-256 Checksum:** `{file_hash}`")
         st.write(f"**Model Descriptor:** `{result.get('model_source', 'N/A')}`")
-        if extra:
-            clean_extra = extra.copy()
-            if "heatmap_b64" in clean_extra:
-                clean_extra["heatmap_b64"] = "[Encoded PNG Heatmap Stream]"
-            if "frame_probabilities" in clean_extra:
-                clean_extra["frame_probabilities"] = f"[{len(clean_extra['frame_probabilities'])} frames evaluated]"
-            st.json(clean_extra)
+        _SKIP = {"heatmap_b64", "label_mapping", "raw_probabilities"}
+        clean_extra = {
+            k: ("[Encoded PNG Heatmap Stream]" if k == "heatmap_b64" else
+                (f"[{len(v)} frames evaluated]" if k == "frame_probabilities" else v))
+            for k, v in result.items() if k not in _SKIP
+        }
+        st.json(clean_extra)
 
     # Download Forensic Report
+    # Exclude base prediction fields + binary heatmap from the JSON metadata
+    _BASE_KEYS = {
+        "modality", "label_mapping", "threshold", "raw_probabilities",
+        "class_index", "label", "confidence", "is_deepfake",
+        "probability_fake", "model_source", "heatmap_b64",
+    }
     report_data = {
         "report_id": f"DG-{int(time.time())}",
         "timestamp_utc": time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime()),
@@ -746,7 +754,7 @@ def show_result(result, mode, file_name, file_size, file_hash):
         "confidence": conf,
         "fake_probability": prob,
         "model_source": result.get("model_source", "N/A"),
-        "forensic_metadata": {k: v for k, v in extra.items() if k != "heatmap_b64"},
+        "forensic_metadata": {k: v for k, v in result.items() if k not in _BASE_KEYS},
     }
     st.download_button(
         label="📥 Download Forensic Audit Report (JSON)",
