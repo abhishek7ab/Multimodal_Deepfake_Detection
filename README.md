@@ -1,10 +1,10 @@
 # Multimodal Deepfake Detection System
 
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://multimodaldeepfakedetection-fwyv3uecaawyswbwcais8c.streamlit.app/)
+[[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://multimodaldeepfakedetection-fwyv3uecaawyswbwcais8c.streamlit.app/)](https://multimodaldeepfakedetection-fwyv3uecaawyswbwcais8c.streamlit.app/)
 
 ## 🌐 Live Deployment
-🚀 **Live Streamlit App:** [DeepGuard | Multimodal Deepfake Forensics](https://multimodaldeepfakedetection-fwyv3uecaawyswbwcais8c.streamlit.app/)
+🚀 **Live Streamlit App:** [[DeepGuard | Multimodal Deepfake Forensics](https://multimodaldeepfakedetection-fwyv3uecaawyswbwcais8c.streamlit.app/)](https://multimodaldeepfakedetection-fwyv3uecaawyswbwcais8c.streamlit.app/)
 
 This project detects deepfakes across three modalities:
 
