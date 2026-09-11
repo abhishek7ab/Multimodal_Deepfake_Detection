@@ -11,7 +11,7 @@ def predict_image_bytes(image_bytes: bytes, filename: str | None = None) -> dict
     batch = preprocess_image_bytes(image_bytes, mode=loaded_model.preprocessing)
     raw_prediction = loaded_model.model.predict(batch, verbose=0)[0]
 
-    return build_prediction_result(
+    result = build_prediction_result(
         modality="image",
         raw_prediction=raw_prediction,
         threshold=IMAGE_CONFIG.threshold,
@@ -23,3 +23,10 @@ def predict_image_bytes(image_bytes: bytes, filename: str | None = None) -> dict
             "legacy_binary_head": loaded_model.legacy_binary_head,
         },
     )
+
+    # Keep compatibility with the Streamlit UI's result fields while using
+    # the canonical REAL=0 / FAKE=1 mapping from config.py.
+    result["probability_fake"] = float(result["raw_probabilities"][1])
+    result["is_deepfake"] = result["label"] == "FAKE"
+
+    return result
