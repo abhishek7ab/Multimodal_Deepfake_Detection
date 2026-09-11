@@ -23,15 +23,22 @@ class LoadedImageModel:
 def _wrap_binary_model(base_model: tf.keras.Model) -> tf.keras.Model:
     input_shape = tuple(base_model.input_shape[1:])
     inputs = tf.keras.Input(shape=input_shape, name="legacy_input")
-    base_outputs = base_model(inputs)
+    base_output = base_model(inputs)
 
-    # The legacy model has a single sigmoid output representing the FAKE
-    # probability. Convert it to the canonical [REAL, FAKE] order.
+    # The legacy model was trained with the dataset's binary class index as
+    # the sigmoid target. With the real_vs_fake directory layout, class index
+    # 1 corresponds to REAL and class index 0 corresponds to FAKE.
+    # Therefore the sigmoid value is the REAL probability, while its
+    # complement is the FAKE probability. Convert to canonical [REAL, FAKE].
     outputs = tf.keras.layers.Lambda(
-        lambda tensor: tf.concat([1.0 - tensor, tensor], axis=-1),
+        lambda tensor: tf.concat([tensor, 1.0 - tensor], axis=-1),
         name="binary_to_two_class_probabilities",
-    )(base_outputs)
-    return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{base_model.name}_wrapped")
+    )(base_output)
+    return tf.keras.Model(
+        inputs=inputs,
+        outputs=outputs,
+        name=f"{base_model.name}_wrapped",
+    )
 
 
 def create_image_augmentation() -> tf.keras.Sequential:
@@ -111,7 +118,7 @@ def load_image_model() -> LoadedImageModel:
             return LoadedImageModel(
                 model=wrapped,
                 source_path=str(model_path),
-                preprocessing="legacy_rgb_normalized",
+                preprocessing="legacy_rgb",
                 legacy_binary_head=True,
             )
 
