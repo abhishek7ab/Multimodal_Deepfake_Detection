@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Ensure repository root is on sys.path when script is executed directly
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import numpy as np
 
 from config import VIDEO_CONFIG, build_prediction_result
 from image_model.image_model import load_image_model
 from image_model.image_utils import preprocess_image_array
 
-from .video_utils import extract_audio_track_from_video, extract_video_frames
+try:
+    from .video_utils import extract_audio_track_from_video, extract_video_frames
+except (ImportError, ValueError):
+    from video_model.video_utils import extract_audio_track_from_video, extract_video_frames
+
 
 
 def predict_video_bytes(video_bytes: bytes, filename: str | None = None) -> dict:
@@ -84,3 +96,28 @@ def predict_video_bytes(video_bytes: bytes, filename: str | None = None) -> dict
             "audio_details": audio_result,
         },
     )
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        video_path = Path(sys.argv[1])
+        if video_path.exists():
+            print(f"Analyzing {video_path}...")
+            result = predict_video_bytes(video_path.read_bytes(), filename=video_path.name)
+            print(f"\nResult: {result.get('label')}")
+            print(f"Confidence: {result.get('confidence'):.2%}")
+            print(f"Details: {result}")
+        else:
+            print(f"File not found: {video_path}")
+    else:
+        print("=" * 60)
+        print("Multimodal Deepfake Detection - Video Model")
+        print("=" * 60)
+        print("Usage:")
+        print("  1. Analyze a video file via CLI:")
+        print("     python video_model/video_predict.py <path_to_video>")
+        print("\n  2. Launch the Streamlit Web Application (Recommended):")
+        print("     streamlit run streamlit_app.py")
+        print("\n  3. Run the FastAPI REST Server:")
+        print("     uvicorn main:app --reload")
+        print("=" * 60)

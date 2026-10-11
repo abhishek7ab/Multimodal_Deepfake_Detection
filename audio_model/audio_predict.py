@@ -1,9 +1,22 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Ensure repository root is on sys.path when script is executed directly
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from config import AUDIO_CONFIG, build_prediction_result
 
-from .audio_model import load_audio_model
-from .audio_utils import extract_legacy_log_mel_batch, extract_mfcc_batch
+try:
+    from .audio_model import load_audio_model
+    from .audio_utils import extract_legacy_log_mel_batch, extract_mfcc_batch
+except (ImportError, ValueError):
+    from audio_model.audio_model import load_audio_model
+    from audio_model.audio_utils import extract_legacy_log_mel_batch, extract_mfcc_batch
+
 
 
 def predict_audio_bytes(audio_bytes: bytes, filename: str | None = None) -> dict:
@@ -42,4 +55,30 @@ def predict_audio_bytes(audio_bytes: bytes, filename: str | None = None) -> dict
         model_source=loaded_model.source_path,
         extra=extra,
     )
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        audio_path = Path(sys.argv[1])
+        if audio_path.exists():
+            print(f"Analyzing {audio_path}...")
+            result = predict_audio_bytes(audio_path.read_bytes(), filename=audio_path.name)
+            print(f"\nResult: {result.get('label')}")
+            print(f"Confidence: {result.get('confidence'):.2%}")
+            print(f"Details: {result}")
+        else:
+            print(f"File not found: {audio_path}")
+    else:
+        print("=" * 60)
+        print("Multimodal Deepfake Detection - Audio Model")
+        print("=" * 60)
+        print("Usage:")
+        print("  1. Analyze an audio file via CLI:")
+        print("     python audio_model/audio_predict.py <path_to_audio>")
+        print("\n  2. Launch the Streamlit Web Application (Recommended):")
+        print("     streamlit run streamlit_app.py")
+        print("\n  3. Run the FastAPI REST Server:")
+        print("     uvicorn main:app --reload")
+        print("=" * 60)
+
 

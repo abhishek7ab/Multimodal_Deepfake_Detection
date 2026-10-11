@@ -7,9 +7,9 @@ from typing import Sequence
 
 import numpy as np
 import tensorflow as tf
-from sklearn.utils.class_weight import compute_class_weight
 
 from config import IMAGE_CONFIG
+
 
 
 @dataclass(frozen=True)
@@ -83,8 +83,13 @@ def build_image_model(
 def compute_image_class_weights(labels: Sequence[int]) -> dict[int, float]:
     labels_array = np.asarray(labels, dtype=np.int32)
     classes = np.unique(labels_array)
-    weights = compute_class_weight(class_weight="balanced", classes=classes, y=labels_array)
-    return {int(label): float(weight) for label, weight in zip(classes, weights)}
+    n_samples = len(labels_array)
+    n_classes = len(classes)
+    return {
+        int(c): float(n_samples / (n_classes * max(1, int(np.count_nonzero(labels_array == c)))))
+        for c in classes
+    }
+
 
 
 def _load_keras_model(model_path: Path) -> tf.keras.Model:
