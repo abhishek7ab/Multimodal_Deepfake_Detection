@@ -19,6 +19,7 @@ try:
     from .image_model import load_image_model
     from .image_utils import decode_image_bytes, detect_and_crop_face, preprocess_image_bytes
 except (ImportError, ValueError):
+    # pyrefly: ignore [missing-import]
     from image_model.gradcam import generate_gradcam_heatmap, overlay_heatmap
     from image_model.image_model import load_image_model
     from image_model.image_utils import decode_image_bytes, detect_and_crop_face, preprocess_image_bytes
